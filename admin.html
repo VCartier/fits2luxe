@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Fits2Luxe · Import Excel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Figtree:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+/* Même URL que dans index.html */
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxhza8x8YfM_9PN2x6f4QKDijdbUr-XysnFLwXYNd127nKodUz3XWAKhRW84hUKjxS9xg/exec";
+</script>
+<style>
+:root{--bg:#F4F5F7;--card:#fff;--ink:#101318;--muted:#6B7280;--line:#E3E5EA;--soft:#ECEEF2;--accent:#5B3DF5;--accentInk:#fff;--ok:#16A34A;--warn:#DC2626}
+@media (prefers-color-scheme:dark){:root{--bg:#0C0E12;--card:#161A20;--ink:#F2F3F5;--muted:#9CA3AF;--line:#262B33;--soft:#1D2229;--accent:#8B74FF;--accentInk:#0C0E12;--ok:#4ADE80;--warn:#F87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Figtree",system-ui,sans-serif;line-height:1.5}
+.wrap{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+h1{font-family:"Unbounded",system-ui,sans-serif;font-size:1.6rem;letter-spacing:-.03em;margin:0 0 6px}
+.muted{color:var(--muted);font-size:.92rem}
+.box{background:var(--card);border-radius:20px;padding:22px;margin-top:18px}
+.box h2{font-size:1.05rem;margin:0 0 10px}
+label{display:block;font-weight:600;font-size:.9rem;margin:12px 0 6px}
+input[type=password],input[type=file]{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:inherit;font:inherit}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--soft);padding:4px;border-radius:14px}
+.seg button{border:0;background:none;border-radius:10px;padding:10px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer;text-align:left}
+.seg button small{display:block;font-weight:400;font-size:.8rem}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.primary{width:100%;border:0;background:var(--accent);color:var(--accentInk);font:inherit;font-weight:700;padding:15px;border-radius:999px;margin-top:18px;cursor:pointer}
+.primary:disabled{opacity:.5;cursor:not-allowed}
+.tbl{overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.msg{margin-top:14px;font-weight:600}
+.msg.ok{color:var(--ok)}.msg.err{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Import Excel</h1>
+  <p class="muted">Espace vendeur Fits2Luxe. Choisis ton fichier Excel : les articles sont copiés dans l'onglet Catalogue du Google Sheet, puis apparaissent sur le site. <a href="./" style="color:var(--accent);font-weight:600">Voir la boutique →</a></p>
+
+  <div class="box">
+    <h2>1. Mot de passe</h2>
+    <label for="pw">Le mot de passe défini dans le script (ADMIN_PASSWORD)</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input id="remember" type="checkbox" style="width:auto"> Se souvenir du mot de passe sur cet appareil (seulement sur ton ordinateur perso)</label>
+  </div>
+
+  <div class="box">
+    <h2>2. Fichier Excel</h2>
+    <p class="muted">Mêmes titres de colonnes que l'onglet Catalogue en première ligne (nom, prix, catégorie, photo, visible…). Si le fichier a un onglet « Catalogue », c'est lui qui est lu ; sinon le premier onglet. Les lignes « Exemple » sont ignorées.</p>
+    <input id="file" type="file" accept=".xlsx,.xls,.csv">
+    <div id="preview"></div>
+  </div>
+
+  <div class="box">
+    <h2>3. Mode d'import</h2>
+    <div class="seg" id="mode">
+      <button data-m="merge" aria-pressed="true">Ajouter / mettre à jour<small>Nouveaux articles ajoutés, articles existants (même nom) mis à jour. Rien n'est supprimé.</small></button>
+      <button data-m="replace" aria-pressed="false">Tout remplacer<small>Le Catalogue du Sheet devient exactement le fichier Excel.</small></button>
+    </div>
+    <button class="primary" id="go" disabled>Importer</button>
+    <div class="msg" id="msg" role="status"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let rows=[], mode="merge";
+try{ const saved=localStorage.getItem("f2l-admin-pw"); if(saved){$("#pw").value=saved;$("#remember").checked=true} }catch(e){}
+
+$("#mode").onclick=e=>{const b=e.target.closest("[data-m]");if(!b)return;mode=b.dataset.m;
+  document.querySelectorAll("#mode button").forEach(x=>x.setAttribute("aria-pressed",x===b))};
+
+$("#file").onchange=async()=>{
+  rows=[];$("#preview").innerHTML="";$("#msg").textContent="";$("#go").disabled=true;
+  const f=$("#file").files[0]; if(!f) return;
+  if(!window.XLSX){msg("Le lecteur Excel n'a pas chargé. Vérifie ta connexion et recharge la page.",false);return}
+  try{
+    const wb=XLSX.read(await f.arrayBuffer(),{type:"array",cellDates:true});
+    const name=wb.SheetNames.find(n=>n.trim().toLowerCase()==="catalogue")||wb.SheetNames[0];
+    const all=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:""});
+    const nameKey=r=>Object.keys(r).find(k=>/^(nom|name|produit|article)$/i.test(k.trim()));
+    rows=all.filter(r=>{const k=nameKey(r);const v=k?String(r[k]).trim():"";return v&&!/^exemple/i.test(v)});
+    if(!rows.length){msg("Aucun article trouvé. Vérifie que la première ligne contient bien « nom », « prix »…",false);return}
+    const cols=Object.keys(rows[0]).slice(0,7);
+    $("#preview").innerHTML=`<p class="muted" style="margin-top:12px">Onglet « ${esc(name)} » · ${rows.length} article(s) trouvé(s).</p>
+      <div class="tbl"><table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.slice(0,8).map(r=>`<tr>${cols.map(c=>`<td>${esc(r[c])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    $("#go").disabled=false;
+  }catch(e){msg("Impossible de lire ce fichier. Utilise un .xlsx ou un .csv.",false)}
+};
+
+function msg(t,ok){const m=$("#msg");m.textContent=t;m.className="msg "+(ok?"ok":"err")}
+
+$("#go").onclick=async()=>{
+  const pw=$("#pw").value;
+  if(!pw){msg("Entre le mot de passe.",false);return}
+  if(mode==="replace"&&!confirm("Tout le Catalogue du Google Sheet va être remplacé par ce fichier. Continuer ?"))return;
+  const b=$("#go");b.disabled=true;b.textContent="Import en cours…";msg("",true);
+  try{
+    const clean=rows.map(r=>{const o={};Object.keys(r).forEach(k=>{const v=r[k];o[k]=v instanceof Date?v.toISOString():v});return o});
+    const res=await (await fetch(SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"import",password:pw,mode,rows:clean})})).json();
+    if(!res.ok) throw new Error(res.error||"Erreur");
+    try{ if($("#remember").checked) localStorage.setItem("f2l-admin-pw",pw); else localStorage.removeItem("f2l-admin-pw") }catch(e){}
+    msg(mode==="replace"
+      ?`C'est fait : ${res.added} article(s) dans le Catalogue. Recharge le site pour les voir.`
+      :`C'est fait : ${res.added} ajouté(s), ${res.updated} mis à jour. Recharge le site pour les voir.`,true);
+  }catch(e){
+    msg(e.message&&!/fetch|JSON/i.test(e.message)?e.message:"L'import n'a pas marché. Vérifie ta connexion et que le script est bien redéployé.",false);
+  }
+  b.disabled=false;b.textContent="Importer";
+};
+})();
+</script>
+</body>
+</html>
